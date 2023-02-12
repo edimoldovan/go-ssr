@@ -3,14 +3,11 @@ package main
 import (
 	"embed"
 	"html/template"
-	"io/fs"
 	"log"
-	"main/handlers"
-	"main/middlewares"
 	"net/http"
 
-	"github.com/julienschmidt/httprouter"
-	"github.com/justinas/alice"
+	"main/handlers"
+	"main/middlewares"
 )
 
 //go:embed templates
@@ -23,22 +20,20 @@ func main() {
 	// pre-parse templates, embedded in server binary
 	handlers.Tmpl = template.Must(template.ParseFS(embededTemplates, "templates/layouts/*.html", "templates/partials/*.html"))
 
-	// router
-	router := httprouter.New()
+	// mux/router
+	mux := http.NewServeMux()
 
-	// middlewares
-	chain := alice.New(middlewares.Logger)
-
-	// HTML routes
-	router.GET("/", middlewares.Wrapper(chain.ThenFunc(handlers.Home)))
-
-	// static routes, embedded in server binary
-	if public, err := fs.Sub(embededPublic, "public"); err == nil {
-		router.Handler("GET", "/public/*filepath", http.StripPrefix("/public", http.FileServer(http.FS(public))))
-	} else {
-		panic(err)
+	// public HTML route middleware stack
+	publicHTMLStack := []middlewares.Middleware{
+		middlewares.Logger,
 	}
 
+	// HTML routes
+	mux.HandleFunc("/", middlewares.CompileMiddleware(handlers.Home, publicHTMLStack))
+
+	// static routes, embedded in server binary
+	mux.Handle("/public/", handlers.ServeEmbedded(http.FileServer(http.FS(embededPublic))))
+
 	// HTTP server
-	log.Fatal(http.ListenAndServe(":8000", router))
+	log.Fatal(http.ListenAndServe(":8000", mux))
 }

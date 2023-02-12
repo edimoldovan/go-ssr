@@ -1,27 +1,34 @@
 package middlewares
 
 import (
-	"context"
 	"log"
 	"net/http"
-
-	"github.com/julienschmidt/httprouter"
+	"time"
 )
 
-// logger middleware
-func Logger(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		log.Println(r.Method, r.URL.Path, r.URL.RawQuery)
-		next.ServeHTTP(w, r)
-	})
+// type for chaining
+type Middleware func(http.HandlerFunc) http.HandlerFunc
+
+// basically thisd is middleware chaining
+func CompileMiddleware(h http.HandlerFunc, m []Middleware) http.HandlerFunc {
+	if len(m) < 1 {
+		return h
+	}
+
+	wrapped := h
+
+	// loop in reverse to preserve middleware order
+	for i := len(m) - 1; i >= 0; i-- {
+		wrapped = m[i](wrapped)
+	}
+
+	return wrapped
 }
 
-// wrapper wraps http.Handler and returns httprouter.Handle
-func Wrapper(next http.Handler) httprouter.Handle {
-	return func(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
-		//pass httprouter.Params to request context
-		ctx := context.WithValue(r.Context(), "params", ps)
-		//call next middleware with new context
-		next.ServeHTTP(w, r.WithContext(ctx))
-	}
+func Logger(next http.HandlerFunc) http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		next.ServeHTTP(w, r)
+		log.Printf("%s %s %v", r.Method, r.URL.Path, time.Since(start))
+	})
 }
